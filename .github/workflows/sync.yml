@@ -1,0 +1,50 @@
+name: Upstream Sync
+
+permissions:
+  contents: write
+
+on:
+  schedule:
+    - cron: "0 0 * * *" # every day
+  workflow_dispatch:
+
+jobs:
+  sync_latest_from_upstream:
+    name: Sync latest commits from upstream repo
+    runs-on: ubuntu-latest
+    if: ${{ github.event.repository.fork }}
+
+    steps:
+      - name: Checkout target repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # 获取完整历史，便于 rebase
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync upstream changes with rebase
+        run: |
+          # 【新增】配置 Git 用户身份信息，防止 rebase 报错
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # 添加上游 remote（已存在则忽略）
+          git remote add upstream https://github.com/Wei-Shaw/sub2api.git || true
+          
+          # 获取上游最新提交
+          git fetch upstream main
+          
+          # 切换分支并 rebase（线性同步，无 Merge commit）
+          git checkout main
+          git rebase upstream/main
+          
+          # 安全推送（仅在无冲突时覆盖）
+          git push origin main --force-with-lease
+          
+          echo "✅ Upstream sync completed with rebase (no merge commits)"
+
+      - name: Sync check
+        if: failure()
+        run: |
+          echo "[Error] 同步失败，可能存在冲突。请手动 Sync Fork 并检查项目 README.md"
+          echo "[Error] Sync failed. Please manually sync your fork and refer to the project README.md."
+          exit 1
